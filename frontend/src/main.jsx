@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import { Clock, Users, LayoutDashboard, CalendarDays, LogOut, Search, Plus, Trash2, CheckCircle2, Pencil } from 'lucide-react';
 import './style.css';
+import LoginPage from './LoginPage';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const getToken = () => localStorage.getItem('token');
@@ -47,24 +48,6 @@ function Layout({ children }) {
 }
 
 function StatCard({ title, value, icon }) { return <div className="card stat"><div><p>{title}</p><h2>{value}</h2></div><div className="statIcon">{icon}</div></div> }
-
-function Login() {
-  const nav = useNavigate();
-  const [email,setEmail]=useState('admin@absensi.com');
-  const [password,setPassword]=useState('admin123');
-  const [err,setErr]=useState('');
-  const submit = async e => {
-    e.preventDefault();
-    setErr('');
-    try {
-      const data = await request('/auth/login',{method:'POST',body:JSON.stringify({email,password})});
-      localStorage.setItem('token',data.token);
-      localStorage.setItem('user',JSON.stringify(data.user));
-      nav('/');
-    } catch(ex){ setErr(ex.message); }
-  };
-  return <div className="loginPage"><form className="loginCard" onSubmit={submit}><div className="loginLogo">AbsensiPro</div><h1>Login</h1><p>Masuk sebagai admin atau karyawan.</p>{err && <div className="alert">{err}</div>}<label>Email</label><input value={email} onChange={e=>setEmail(e.target.value)} /><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} /><button>Masuk</button><small>Admin: admin@absensi.com / admin123<br/>User: budi@absensi.com / user123</small></form></div>
-}
 
 function Dashboard(){
   const [stats,setStats]=useState(null);
