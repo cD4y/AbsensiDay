@@ -1,25 +1,77 @@
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
-const db = require('./db');
+const supabase = require('./db');
 
-async function seed() {
-  const users = [
-    ['Admin HRD', 'admin@absensi.com', 'admin123', 'admin', 'HR Manager', 'HRD', '08:00', '17:00'],
-    ['Budi Santoso', 'budi@absensi.com', 'user123', 'employee', 'Staff Operasional', 'Operasional', '08:00', '17:00'],
-    ['Siti Aminah', 'siti@absensi.com', 'user123', 'employee', 'Staff Finance', 'Finance', '09:00', '18:00']
-  ];
+async function upsertUser(user) {
+  const { data: existing, error: findError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', user.email)
+    .maybeSingle();
 
-  for (const u of users) {
-    const hash = await bcrypt.hash(u[2], 10);
-    db.run(
-      'INSERT OR IGNORE INTO users(name,email,password,role,position,department,work_start,work_end) VALUES(?,?,?,?,?,?,?,?)',
-      [u[0], u[1], hash, u[3], u[4], u[5], u[6], u[7]]
-    );
+  if (findError) throw findError;
+
+  if (existing) {
+    const { error } = await supabase
+      .from('users')
+      .update(user)
+      .eq('id', existing.id);
+
+    if (error) throw error;
+    return;
   }
 
-  setTimeout(() => {
-    console.log('Seed selesai. Login admin: admin@absensi.com / admin123');
-    process.exit(0);
-  }, 500);
+  const { error } = await supabase
+    .from('users')
+    .insert(user);
+
+  if (error) throw error;
 }
+
+async function seed() {
+  try {
+    const users = [
+      {
+        name: 'Admin HRD',
+        email: 'admin@absensi.com',
+        password: await bcrypt.hash('admin123', 10),
+        role: 'admin',
+        position: 'HR Manager',
+        department: 'HRD',
+        work_start: '08:00',
+        work_end: '17:00'
+      },
+      {
+        name: 'Budi Santoso',
+        email: 'budi@absensi.com',
+        password: await bcrypt.hash('user123', 10),
+        role: 'employee',
+        position: 'Staff Operasional',
+        department: 'Operasional',
+        work_start: '08:00',
+        work_end: '17:00'
+      },
+      {
+        name: 'Siti Aminah',
+        email: 'siti@absensi.com',
+        password: await bcrypt.hash('user123', 10),
+        role: 'employee',
+        position: 'Staff Finance',
+        department: 'Finance',
+        work_start: '09:00',
+        work_end: '18:00'
+      }
+    ];
+
+    for (const user of users) {
+      await upsertUser(user);
+    }
+
+    console.log('Seed Supabase selesai.');
+    console.log('Login admin: admin@absensi.com / admin123');
+  } catch (error) {
+    console.error('Seed gagal:', error.message);
+  }
+}
+
 seed();
