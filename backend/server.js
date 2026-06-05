@@ -32,107 +32,216 @@ const checkoutStatus = (currentStatus, actual, scheduled) => {
 
 app.get('/', (_, res) => res.json({ message: 'API Absensi Karyawan aktif' }));
 
-app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ message: 'Email dan password wajib diisi' });
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
-    if (err) return res.status(500).json({ message: 'Database error' });
-    if (!user) return res.status(401).json({ message: 'Email atau password salah' });
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(401).json({ message: 'Email atau password salah' });
-    const safeUser = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      position: user.position,
-      department: user.department,
-      work_start: user.work_start || '08:00',
-      work_end: user.work_end || '17:00'
-    };
-    res.json({ token: sign(user), user: safeUser });
-  });
+const safeUserPayload = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  position: user.position,
+  department: user.department,
+  work_start: user.work_start || '08:00',
+  work_end: user.work_end || '17:00',
+  created_at: user.created_at
 });
 
-app.get('/api/me', auth, (req, res) => {
-  db.get('SELECT id,name,email,role,position,department,work_start,work_end,created_at FROM users WHERE id=?', [req.user.id], (err, user) => {
-    if (err || !user) return res.status(404).json({ message: 'User tidak ditemukan' });
-    res.json(user);
-  });
-});
+async function isValidPassword(inputPassword, savedPassword) {
+  if (!savedPassword) return false;
 
-app.get('/api/users', auth, adminOnly, (req, res) => {
-  db.all('SELECT id,name,email,role,position,department,work_start,work_end,created_at FROM users ORDER BY id DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ message: 'Gagal mengambil user' });
-    res.json(rows);
-  });
-});
+  // Password lama dari SQLite biasanya bcrypt.
+  // Admin awal yang dibuat manual di Supabase bisa masih plain text: admin123.
+  if (String(savedPassword).startsWith('$2')) {
+    return bcrypt.compare(inputPassword, savedPassword);
+  }
 
-app.post('/api/users', auth, adminOnly, async (req, res) => {
-  const {
-    name,
-    email,
-    password,
-    role = 'employee',
-    position = 'Karyawan',
-    department = 'Umum',
-    work_start = '08:00',
-    work_end = '17:00'
-  } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ message: 'Nama, email, password wajib diisi' });
-  const hash = await bcrypt.hash(password, 10);
-  const start = normalizeTime(work_start, '08:00');
-  const end = normalizeTime(work_end, '17:00');
-  db.run(
-    'INSERT INTO users(name,email,password,role,position,department,work_start,work_end) VALUES(?,?,?,?,?,?,?,?)',
-    [name, email, hash, role, position, department, start, end],
-    function(err) {
-      if (err) return res.status(400).json({ message: 'Email sudah digunakan atau data tidak valid' });
-      res.status(201).json({ id: this.lastID, name, email, role, position, department, work_start: start, work_end: end });
+  return inputPassword === savedPassword;
+}
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email dan password wajib diisi' });
     }
-  );
-});
 
-app.put('/api/users/:id', auth, adminOnly, async (req, res) => {
-  const { name, email, password, position = 'Karyawan', department = 'Umum', work_start = '08:00', work_end = '17:00' } = req.body;
-  if (!name || !email) return res.status(400).json({ message: 'Nama dan email wajib diisi' });
-  const start = normalizeTime(work_start, '08:00');
-  const end = normalizeTime(work_end, '17:00');
+    const { data: user, error } = await db.supabase
+      .from('users')
+      .select('id,name,email,password,role,position,department,work_start,work_end,created_at')
+      .eq('email', email)
+      .single();
 
-  const updateWithoutPassword = () => {
-    db.run(
-      'UPDATE users SET name=?, email=?, position=?, department=?, work_start=?, work_end=? WHERE id=?',
-      [name, email, position, department, start, end, req.params.id],
-      function(err) {
-        if (err) return res.status(400).json({ message: 'Email sudah digunakan atau data tidak valid' });
-        if (this.changes === 0) return res.status(404).json({ message: 'User tidak ditemukan' });
-        res.json({ id: Number(req.params.id), name, email, position, department, work_start: start, work_end: end });
-      }
-    );
-  };
+    if (error || !user) {
+      return res.status(401).json({ message: 'Email atau password salah' });
+    }
 
-  if (password && String(password).trim()) {
-    const hash = await bcrypt.hash(password, 10);
-    db.run(
-      'UPDATE users SET name=?, email=?, password=?, position=?, department=?, work_start=?, work_end=? WHERE id=?',
-      [name, email, hash, position, department, start, end, req.params.id],
-      function(err) {
-        if (err) return res.status(400).json({ message: 'Email sudah digunakan atau data tidak valid' });
-        if (this.changes === 0) return res.status(404).json({ message: 'User tidak ditemukan' });
-        res.json({ id: Number(req.params.id), name, email, position, department, work_start: start, work_end: end });
-      }
-    );
-  } else {
-    updateWithoutPassword();
+    const valid = await isValidPassword(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ message: 'Email atau password salah' });
+    }
+
+    const safeUser = safeUserPayload(user);
+    res.json({ token: sign(safeUser), user: safeUser });
+  } catch (error) {
+    console.error('Login Supabase error:', error.message);
+    res.status(500).json({ message: 'Gagal login ke Supabase' });
   }
 });
 
-app.delete('/api/users/:id', auth, adminOnly, (req, res) => {
-  if (Number(req.params.id) === req.user.id) return res.status(400).json({ message: 'Admin tidak bisa menghapus akun sendiri' });
-  db.run('DELETE FROM users WHERE id=?', [req.params.id], function(err) {
-    if (err) return res.status(500).json({ message: 'Gagal menghapus user' });
+app.get('/api/me', auth, async (req, res) => {
+  try {
+    const { data: user, error } = await db.supabase
+      .from('users')
+      .select('id,name,email,role,position,department,work_start,work_end,created_at')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ message: 'User tidak ditemukan' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error('Me Supabase error:', error.message);
+    res.status(500).json({ message: 'Gagal mengambil data user' });
+  }
+});
+
+app.get('/api/users', auth, adminOnly, async (req, res) => {
+  try {
+    const { data: rows, error } = await db.supabase
+      .from('users')
+      .select('id,name,email,role,position,department,work_start,work_end,created_at')
+      .order('id', { ascending: false });
+
+    if (error) throw error;
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Ambil users Supabase error:', error.message);
+    res.status(500).json({ message: 'Gagal mengambil user dari Supabase' });
+  }
+});
+
+app.post('/api/users', auth, adminOnly, async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      role = 'employee',
+      position = 'Karyawan',
+      department = 'Umum',
+      work_start = '08:00',
+      work_end = '17:00'
+    } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Nama, email, password wajib diisi' });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const start = normalizeTime(work_start, '08:00');
+    const end = normalizeTime(work_end, '17:00');
+
+    const payload = {
+      name,
+      email,
+      password: hash,
+      role,
+      position,
+      department,
+      work_start: start,
+      work_end: end
+    };
+
+    const { data: user, error } = await db.supabase
+      .from('users')
+      .insert(payload)
+      .select('id,name,email,role,position,department,work_start,work_end,created_at')
+      .single();
+
+    if (error) {
+      console.error('Tambah user Supabase error:', error.message);
+      return res.status(400).json({ message: 'Email sudah digunakan atau data tidak valid' });
+    }
+
+    res.status(201).json(user);
+  } catch (error) {
+    console.error('Tambah user error:', error.message);
+    res.status(500).json({ message: 'Gagal menambah karyawan' });
+  }
+});
+
+app.put('/api/users/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      position = 'Karyawan',
+      department = 'Umum',
+      work_start = '08:00',
+      work_end = '17:00'
+    } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ message: 'Nama dan email wajib diisi' });
+    }
+
+    const start = normalizeTime(work_start, '08:00');
+    const end = normalizeTime(work_end, '17:00');
+
+    const payload = {
+      name,
+      email,
+      position,
+      department,
+      work_start: start,
+      work_end: end
+    };
+
+    if (password && String(password).trim()) {
+      payload.password = await bcrypt.hash(password, 10);
+    }
+
+    const { data: user, error } = await db.supabase
+      .from('users')
+      .update(payload)
+      .eq('id', req.params.id)
+      .select('id,name,email,role,position,department,work_start,work_end,created_at')
+      .single();
+
+    if (error || !user) {
+      console.error('Edit user Supabase error:', error?.message);
+      return res.status(400).json({ message: 'User tidak ditemukan, email sudah digunakan, atau data tidak valid' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error('Edit user error:', error.message);
+    res.status(500).json({ message: 'Gagal mengedit karyawan' });
+  }
+});
+
+app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
+  try {
+    if (Number(req.params.id) === Number(req.user.id)) {
+      return res.status(400).json({ message: 'Admin tidak bisa menghapus akun sendiri' });
+    }
+
+    const { error } = await db.supabase
+      .from('users')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      console.error('Hapus user Supabase error:', error.message);
+      return res.status(500).json({ message: 'Gagal menghapus user dari Supabase' });
+    }
+
     res.json({ message: 'User berhasil dihapus' });
-  });
+  } catch (error) {
+    console.error('Hapus user error:', error.message);
+    res.status(500).json({ message: 'Gagal menghapus user' });
+  }
 });
 
 app.get('/api/attendance/today', auth, (req, res) => {
@@ -185,14 +294,24 @@ app.get('/api/attendance/all', auth, adminOnly, (req, res) => {
   });
 });
 
-app.get('/api/stats', auth, adminOnly, (req, res) => {
+app.get('/api/stats', auth, adminOnly, async (req, res) => {
   const date = nowDate();
-  db.get('SELECT COUNT(*) as totalEmployees FROM users WHERE role="employee"', [], (e1, employees) => {
+
+  try {
+    const { count: totalEmployees, error } = await db.supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .neq('role', 'admin');
+
+    if (error) throw error;
+
+    // Tahap 3: statistik karyawan sudah dari Supabase.
+    // Statistik absensi masih dari SQLite dan akan dipindah pada Tahap 4.
     db.get('SELECT COUNT(*) as todayPresent FROM attendance WHERE date=? AND check_in IS NOT NULL', [date], (e2, present) => {
       db.get('SELECT COUNT(*) as checkedOut FROM attendance WHERE date=? AND check_out IS NOT NULL', [date], (e3, out) => {
         db.get('SELECT COUNT(*) as lateToday FROM attendance WHERE date=? AND status LIKE "%Terlambat%"', [date], (e4, late) => {
           res.json({
-            totalEmployees: employees?.totalEmployees || 0,
+            totalEmployees: totalEmployees || 0,
             todayPresent: present?.todayPresent || 0,
             checkedOut: out?.checkedOut || 0,
             lateToday: late?.lateToday || 0,
@@ -201,7 +320,10 @@ app.get('/api/stats', auth, adminOnly, (req, res) => {
         });
       });
     });
-  });
+  } catch (error) {
+    console.error('Stats Supabase error:', error.message);
+    res.status(500).json({ message: 'Gagal mengambil statistik' });
+  }
 });
 
 const PORT = process.env.PORT || 5000;

@@ -1,6 +1,20 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config();
+
+// SQLite tetap dipertahankan sementara supaya fitur lain belum rusak saat migrasi bertahap.
 const db = new sqlite3.Database(path.join(__dirname, 'absensi.sqlite'));
+
+// Supabase dipakai mulai Tahap 2 untuk login dan /api/me.
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.warn('SUPABASE_URL atau SUPABASE_KEY belum diisi di file .env');
+}
+
+db.supabase = createClient(supabaseUrl || 'https://example.supabase.co', supabaseKey || 'missing-key');
 
 function addColumnIfMissing(table, column, definition) {
   db.all(`PRAGMA table_info(${table})`, [], (err, rows) => {
