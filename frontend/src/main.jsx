@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate } from 'react
 import { Clock, Users, LayoutDashboard, CalendarDays, LogOut, Search, Plus, Trash2, CheckCircle2, Pencil } from 'lucide-react';
 import './style.css';
 
-const API = 'http://localhost:5000/api';
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const getToken = () => localStorage.getItem('token');
 const getUser = () => JSON.parse(localStorage.getItem('user') || 'null');
 
