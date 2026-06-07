@@ -303,7 +303,7 @@ function Dashboard() {
     >
       {loading ? <SkeletonStats /> : (
         <div className="grid3">
-          {user?.role === 'admin' ? [
+          {(user?.role === 'admin' ? [
             { label: 'Total Karyawan', val: stats?.totalEmployees, sub: 'Terdaftar',   icon: 'si-blue',   ti: 'ti-users' },
             { label: 'Hadir Hari Ini', val: stats?.todayPresent,   sub: 'Tepat waktu', icon: 'si-green',  ti: 'ti-circle-check' },
             { label: 'Terlambat',      val: stats?.lateToday,      sub: 'Hari ini',    icon: 'si-yellow', ti: 'ti-clock-exclamation' },
@@ -311,7 +311,7 @@ function Dashboard() {
             { label: 'Jabatan',    val: user?.position || 'Karyawan', sub: '', icon: 'si-blue',   ti: 'ti-id-badge' },
             { label: 'Jam Masuk',  val: user?.work_start || '08:00',  sub: '', icon: 'si-green',  ti: 'ti-login' },
             { label: 'Jam Pulang', val: user?.work_end   || '17:00',  sub: '', icon: 'si-yellow', ti: 'ti-logout' },
-          ].map(s => (
+          ]).map(s => (
             <div className="stat-card" key={s.label}>
               <div>
                 <div className="stat-label">{s.label}</div>
